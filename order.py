@@ -3,10 +3,7 @@ import json
 FILE = "orders.json"
 
 def load():
-    try:
-        return json.load(open(FILE,"r"))
-    except:
-        return {"counter":0,"data":{}}
+    return json.load(open(FILE,"r"))
 
 def save(data):
     json.dump(data, open(FILE,"w"), indent=4)
@@ -29,3 +26,22 @@ def create_order(user_id, item, qty, total):
 
     save(db)
     return oid
+
+
+def update_status(order_id, status):
+
+    db = load()
+
+    if order_id in db["data"]:
+        db["data"][order_id]["status"] = status
+        save(db)
+
+
+def cancel_order(order_id):
+
+    db = load()
+
+    if order_id not in db["data"]:
+        return False
+
+    return db["data"][order_id]
