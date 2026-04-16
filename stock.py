@@ -26,7 +26,10 @@ def add_stock(item, qty):
 def reduce_stock(item, qty):
     data = load()
 
-    if item not in data or data[item]["stock"] < qty:
+    if item not in data:
+        return False
+
+    if data[item]["stock"] < qty:
         return False
 
     data[item]["stock"] -= qty
