@@ -1,6 +1,13 @@
 {
   "ticket_category_id": 1494030086779699352,
-  "order_category_id": 1494062876334358739,
-  "log_channel_id": 1494258803422662856,
+
+  "customer_order_channel_id": 1494062876334358739,
+
+  "admin_order_log_channel_id": 1494409750866301209,
+
+  "check_log_channel_id": 1494258803422662856,
+
+  "admin_role_id": 1484797686648537205,
+
   "auto_close_minutes": 20
 }
