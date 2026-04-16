@@ -2,12 +2,5 @@
   "ticket_category_id": 1494030086779699352,
   "order_category_id": 1494062876334358739,
   "log_channel_id": 1494258803422662856,
-  "auto_close_minutes": 20,
-
-  "discount_tiers": {
-    "25": 0.05,
-    "50": 0.15,
-    "75": 0.25,
-    "100": 0.35
-  }
+  "auto_close_minutes": 20
 }
