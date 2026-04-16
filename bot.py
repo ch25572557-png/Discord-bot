@@ -1,192 +1,192 @@
 import discord
 from discord import app_commands
-from discord.ui import View, Button
-import os
 import json
+import os
 import random
-import datetime
 
 TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-# ---------------- LOG CHANNEL ----------------
+# ================= CONFIG =================
+TICKET_CATEGORY_ID = 1494046169511235755
+ORDER_CATEGORY_ID = 1494062876334358739
 LOG_CHANNEL_ID = 1494258803422662856
 
-async def send_log(message: str):
-    channel = client.get_channel(LOG_CHANNEL_ID)
-    if channel:
-        await channel.send(message)
+VIP_ROLE_ID = 0
 
-# ---------------- STOCK SYSTEM ----------------
+tickets = {}
 
-def load_stock():
+# ================= LOAD / SAVE =================
+def load(file):
     try:
-        with open("stock.json", "r") as f:
+        with open(file, "r") as f:
             return json.load(f)
     except:
         return {}
 
-def save_stock(data):
-    with open("stock.json", "w") as f:
+def save(file, data):
+    with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
-# ---------------- ORDERS ----------------
+# ================= SAFE GET CATEGORY =================
+def get_category(guild, cid):
+    ch = guild.get_channel(cid)
+    return ch if isinstance(ch, discord.CategoryChannel) else None
 
-def load_orders():
-    try:
-        with open("orders.json", "r") as f:
-            return json.load(f)
-    except:
-        return {}
+# ================= LOG =================
+async def log(msg):
+    ch = client.get_channel(LOG_CHANNEL_ID)
+    if ch:
+        await ch.send(msg)
 
-def save_orders(data):
-    with open("orders.json", "w") as f:
-        json.dump(data, f, indent=4)
+# ================= TICKET =================
+class TicketView(discord.ui.View):
 
-# ---------------- STATUS BUTTON VIEW ----------------
+    @discord.ui.button(label="🎫 เปิด Ticket", style=discord.ButtonStyle.green)
+    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
 
-class StatusView(View):
-    def __init__(self, order_id: str):
-        super().__init__(timeout=None)
-        self.order_id = order_id
+        guild = interaction.guild
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้น", ephemeral=True)
-            return False
-        return True
+        category = get_category(guild, TICKET_CATEGORY_ID)
 
-    async def update_status(self, interaction: discord.Interaction, status: str, color: discord.Color):
-
-        orders = load_orders()
-        order = orders.get(self.order_id)
-
-        if not order:
-            await interaction.response.send_message("❌ ไม่พบออเดอร์", ephemeral=True)
-            return
-
-        # update data
-        order["status"] = status
-        orders[self.order_id] = order
-        save_orders(orders)
-
-        # update embed
-        embed = interaction.message.embeds[0]
-        embed.set_field_at(3, name="📌 สถานะ", value=status, inline=False)
-        embed.color = color
-
-        await interaction.message.edit(embed=embed, view=self)
-        await interaction.response.defer()
-
-        # 🔔 DM ลูกค้า
-        try:
-            user = await client.fetch_user(order["user_id"])
-            await user.send(
-                f"📦 ออเดอร์ #{self.order_id}\n🔄 สถานะอัปเดต: {status}"
+        if not category:
+            return await interaction.response.send_message(
+                "❌ Ticket category ไม่ถูกต้อง",
+                ephemeral=True
             )
-        except:
-            pass
 
-        # 📜 LOG
-        await send_log(
-            f"📢 ORDER UPDATE\n"
-            f"👤 Admin: {interaction.user} ({interaction.user.id})\n"
-            f"🧾 Order: #{self.order_id}\n"
-            f"🔄 Status: {status}\n"
-            f"⏰ {datetime.datetime.now()}"
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+
+        channel = await guild.create_text_channel(
+            name=f"ticket-{interaction.user.name}",
+            category=category,
+            overwrites=overwrites
         )
 
-    @discord.ui.button(label="📦 เตรียมสินค้า", style=discord.ButtonStyle.primary)
-    async def preparing(self, interaction: discord.Interaction, button: Button):
-        await self.update_status(interaction, "📦 กำลังเตรียมสินค้า", discord.Color.blue())
+        tickets[channel.id] = interaction.user.id
 
-    @discord.ui.button(label="🚚 กำลังส่ง", style=discord.ButtonStyle.secondary)
-    async def shipping(self, interaction: discord.Interaction, button: Button):
-        await self.update_status(interaction, "🚚 กำลังส่งสินค้า", discord.Color.orange())
+        await interaction.response.send_message(
+            f"🎫 เปิด Ticket แล้ว: {channel.mention}",
+            ephemeral=True
+        )
 
-    @discord.ui.button(label="🟢 ส่งแล้ว", style=discord.ButtonStyle.success)
-    async def done(self, interaction: discord.Interaction, button: Button):
-        await self.update_status(interaction, "🟢 ส่งสินค้าแล้ว", discord.Color.green())
+        await channel.send("🛍️ ใช้ /ส่งของ ในห้องนี้")
 
-# ---------------- CREATE ORDER ----------------
+# ================= GET USER =================
+def get_ticket_user(channel_id):
+    return tickets.get(channel_id)
 
-@tree.command(name="ส่งของ", description="สร้างออเดอร์สินค้า")
-async def ส่งของ(interaction: discord.Interaction, ลูกค้า: discord.User, สินค้า: str, จำนวน: str):
+# ================= ORDER =================
+@tree.command(name="ส่งของ")
+async def send_order(interaction: discord.Interaction, สินค้า: str, จำนวน: str, ราคา: int):
+
+    user_id = get_ticket_user(interaction.channel.id)
+
+    if not user_id:
+        return await interaction.response.send_message("❌ ใช้ได้เฉพาะใน Ticket", ephemeral=True)
+
+    guild = interaction.guild
+    member = guild.get_member(user_id)
+    user = await client.fetch_user(user_id)
+
+    vip_role = guild.get_role(VIP_ROLE_ID)
+    is_vip = vip_role in member.roles if vip_role else False
+
+    final_price = int(ราคา * 0.8) if is_vip else ราคา
 
     order_id = str(random.randint(1000, 9999))
 
-    orders = load_orders()
+    orders = load("orders.json")
     orders[order_id] = {
-        "user_id": ลูกค้า.id,
+        "user_id": user_id,
         "สินค้า": สินค้า,
         "จำนวน": จำนวน,
-        "status": "🟡 รอดำเนินการ"
+        "ราคา": final_price
     }
-    save_orders(orders)
+    save("orders.json", orders)
+
+    # ================= ORDER CATEGORY =================
+    category = get_category(guild, ORDER_CATEGORY_ID)
+
+    order_channel = None
+    if category:
+        order_channel = await guild.create_text_channel(
+            name=f"order-{order_id}",
+            category=category
+        )
 
     embed = discord.Embed(
         title=f"🛍️ ORDER #{order_id}",
-        color=discord.Color.yellow()
+        color=discord.Color.green()
     )
 
-    embed.add_field(name="👤 ผู้รับ", value=ลูกค้า.mention, inline=False)
+    embed.add_field(name="👤 ลูกค้า", value=user.mention, inline=False)
     embed.add_field(name="📦 สินค้า", value=สินค้า, inline=False)
     embed.add_field(name="🔢 จำนวน", value=จำนวน, inline=False)
-    embed.add_field(name="📌 สถานะ", value="🟡 รอดำเนินการ", inline=False)
+    embed.add_field(name="💰 ราคา", value=f"{final_price} บาท", inline=False)
 
-    await interaction.response.send_message("✅ สร้างออเดอร์แล้ว!", ephemeral=True)
-    await interaction.channel.send(embed=embed, view=StatusView(order_id))
+    await interaction.channel.send(embed=embed)
 
-    await send_log(
-        f"🛍️ NEW ORDER #{order_id}\n"
-        f"👤 User: {ลูกค้า} ({ลูกค้า.id})\n"
-        f"📦 {สินค้า} x{จำนวน}\n"
-        f"⏰ {datetime.datetime.now()}"
+    if order_channel:
+        await order_channel.send(embed=embed)
+
+    await interaction.response.send_message("✅ สร้างออเดอร์แล้ว", ephemeral=True)
+
+    # ================= POINTS =================
+    points = load("points.json")
+    uid = str(user_id)
+
+    points[uid] = points.get(uid, 0) + 1
+    save("points.json", points)
+
+    await update_vip(member, points[uid])
+
+    await log(f"🛍️ ORDER #{order_id} | VIP={is_vip} | {final_price}")
+
+# ================= VIP =================
+async def update_vip(member, points):
+
+    role = member.guild.get_role(VIP_ROLE_ID)
+    if not role:
+        return
+
+    if points >= 50:
+        if role not in member.roles:
+            await member.add_roles(role)
+    else:
+        if role in member.roles:
+            await member.remove_roles(role)
+
+# ================= SETUP =================
+@tree.command(name="setup_ticket")
+async def setup_ticket(interaction: discord.Interaction):
+
+    ch = client.get_channel(TICKET_CATEGORY_ID)
+
+    await ch.send(
+        embed=discord.Embed(
+            title="🎫 Ticket System",
+            description="กดปุ่มเพื่อเปิด Ticket",
+            color=discord.Color.green()
+        ),
+        view=TicketView()
     )
 
-# ---------------- STOCK ----------------
+    await interaction.response.send_message("✅ ตั้งบอร์ดแล้ว", ephemeral=True)
 
-@tree.command(name="เพิ่มสต็อก")
-async def add_stock(interaction: discord.Interaction, สินค้า: str, จำนวน: int):
-    data = load_stock()
-    data[สินค้า] = data.get(สินค้า, 0) + จำนวน
-    save_stock(data)
-
-    await interaction.response.send_message(f"✅ เพิ่ม {สินค้า} +{จำนวน}")
-
-@tree.command(name="ลดสต็อก")
-async def remove_stock(interaction: discord.Interaction, สินค้า: str, จำนวน: int):
-    data = load_stock()
-    if สินค้า not in data:
-        return await interaction.response.send_message("❌ ไม่มีสินค้า")
-
-    data[สินค้า] -= จำนวน
-    if data[สินค้า] <= 0:
-        del data[สินค้า]
-
-    save_stock(data)
-    await interaction.response.send_message(f"🗑️ ลด {สินค้า} -{จำนวน}")
-
-@tree.command(name="ดูสต็อก")
-async def show_stock(interaction: discord.Interaction):
-    data = load_stock()
-    if not data:
-        return await interaction.response.send_message("📦 ไม่มีสินค้า")
-
-    msg = "**📦 STOCK:**\n"
-    for k, v in data.items():
-        msg += f"- {k}: {v}\n"
-
-    await interaction.response.send_message(msg)
-
-# ---------------- READY ----------------
-
+# ================= READY =================
 @client.event
 async def on_ready():
     await tree.sync()
-    print(f"Logged in as {client.user}")
+    print("Bot Ready")
 
 client.run(TOKEN)
