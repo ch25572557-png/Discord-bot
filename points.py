@@ -12,21 +12,13 @@ def save(data):
     json.dump(data, open(FILE,"w"), indent=4)
 
 
-def add_points(user_id, amt=1):
+def add_points(uid, amt):
     data = load()
-    uid = str(user_id)
+    uid = str(uid)
 
-    data[uid] = data.get(uid,0) + amt
+    data[uid] = data.get(uid, 0) + amt
     save(data)
 
 
-def get_points(user_id):
-    return load().get(str(user_id),0)
-
-
-def remove_points(user_id, amt):
-    data = load()
-    uid = str(user_id)
-
-    data[uid] = max(0, data.get(uid,0)-amt)
-    save(data)
+def get_points(uid):
+    return load().get(str(uid), 0)
