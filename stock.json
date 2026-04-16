@@ -1,1 +1,4 @@
-
+{
+  "Cash": { "stock": 100, "price": 10 },
+  "Gun": { "stock": 50, "price": 500 }
+}
