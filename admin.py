@@ -1,38 +1,58 @@
 import discord
-from order import load, save
-from stock import load as sl, save as ss
+from stock import add_stock, reduce_stock, load as stock_load
+from points import add_points
 
-class StatusView(discord.ui.View):
+class AdminStockView(discord.ui.View):
 
-    def __init__(self, oid):
-        super().__init__()
-        self.oid = oid
+    @discord.ui.button(label="➕ เพิ่มสต๊อก", style=discord.ButtonStyle.green)
+    async def add(self, interaction, button):
 
-    @discord.ui.button(label="❌ ยกเลิก", style=discord.ButtonStyle.danger)
-    async def cancel(self,i,b):
+        await interaction.response.send_message("item qty", ephemeral=True)
 
-        db = load()
+        msg = await interaction.client.wait_for("message")
 
-        o = db["data"][self.oid]
+        item, qty = msg.content.split()
 
-        stock = sl()
+        add_stock(item, int(qty))
 
-        stock[o["item"]]["stock"] += o["qty"]
-        ss(stock)
+        await interaction.channel.send(f"➕ {item} +{qty}")
 
-        del db["data"][self.oid]
-        save(db)
 
-        await i.response.send_message("ยกเลิกแล้ว",ephemeral=True)
+    @discord.ui.button(label="➖ ลดสต๊อก", style=discord.ButtonStyle.red)
+    async def remove(self, interaction, button):
 
-    @discord.ui.button(label="🟢 ส่งแล้ว", style=discord.ButtonStyle.success)
-    async def done(self,i,b):
+        await interaction.response.send_message("item qty", ephemeral=True)
 
-        db = load()
+        msg = await interaction.client.wait_for("message")
 
-        db["data"][self.oid]["status"] = "ส่งแล้ว"
-        save(db)
+        item, qty = msg.content.split()
 
-        await i.response.send_message("ส่งแล้ว",ephemeral=True)
+        reduce_stock(item, int(qty))
 
-        await i.channel.delete()
+        await interaction.channel.send(f"➖ {item} -{qty}")
+
+
+    @discord.ui.button(label="📊 ดูสต๊อก", style=discord.ButtonStyle.blurple)
+    async def show(self, interaction, button):
+
+        data = stock_load()
+
+        text = "\n".join([f"{k}: {v['stock']}" for k,v in data.items()])
+
+        await interaction.response.send_message(text or "empty", ephemeral=True)
+
+
+class AdminPointsView(discord.ui.View):
+
+    @discord.ui.button(label="➕ Points", style=discord.ButtonStyle.green)
+    async def add(self, interaction, button):
+
+        await interaction.response.send_message("user_id amt", ephemeral=True)
+
+        msg = await interaction.client.wait_for("message")
+
+        uid, amt = msg.content.split()
+
+        add_points(uid, int(amt))
+
+        await interaction.channel.send(f"➕ {uid} +{amt}")
