@@ -1,33 +1,55 @@
 import discord
-import os
-from discord import app_commands
+from discord.ext import commands
+import json
 
 from ticket import TicketView
-from shop import ShopView
-from admin import AdminStockView, AdminPointsView
 
+# โหลด config
+config = json.load(open("config.json", "r", encoding="utf-8"))
+
+# intents (สำคัญมาก)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True  # สำคัญสำหรับ admin + dm + fetch user
 
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-@client.event
+
+# -------------------------
+# BOT READY
+# -------------------------
+@bot.event
 async def on_ready():
-    await tree.sync()
-    print("READY:", client.user)
+    print(f"✅ Bot online: {bot.user}")
 
-@tree.command(name="ticket")
-async def ticket(interaction):
-    await interaction.response.send_message("🎫 Ticket", view=TicketView())
 
-@tree.command(name="admin")
-async def admin(interaction):
-    await interaction.response.send_message("👑 Admin", view=AdminStockView())
+# -------------------------
+# สั่งเปิดระบบ ticket
+# -------------------------
+@bot.command()
+async def panel(ctx):
+    """ส่งปุ่มสั่งของ"""
+    await ctx.send("🛒 กดปุ่มด้านล่างเพื่อสั่งของ", view=TicketView())
 
-@tree.command(name="points")
-async def points(interaction):
-    await interaction.response.send_message("💰 Points", view=AdminPointsView())
 
-client.run(os.getenv("TOKEN"))
+# -------------------------
+# เช็คระบบ
+# -------------------------
+@bot.command()
+async def ping(ctx):
+    await ctx.send("🏓 Pong!")
+
+
+# -------------------------
+# ERROR HANDLE
+# -------------------------
+@bot.event
+async def on_command_error(ctx, error):
+    await ctx.send(f"❌ Error: {error}")
+
+
+# -------------------------
+# RUN BOT
+# -------------------------
+bot.run("YOUR_BOT_TOKEN")
