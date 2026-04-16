@@ -14,15 +14,14 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 # ================= CONFIG =================
-TICKET_CATEGORY_ID = 1494046169511235755
-ORDER_CATEGORY_ID = 1494062876334358739
+TICKET_CATEGORY_NAME = "📩 Ticket"
+ORDER_CATEGORY_NAME = "🧾 Orders"
 LOG_CHANNEL_ID = 1494258803422662856
-
-VIP_ROLE_ID = 0
+VIP_ROLE_ID = 0  # ใส่ VIP Role ID
 
 tickets = {}
 
-# ================= LOAD / SAVE =================
+# ================= DB =================
 def load(file):
     try:
         with open(file, "r") as f:
@@ -34,16 +33,38 @@ def save(file, data):
     with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
-# ================= SAFE GET CATEGORY =================
-def get_category(guild, cid):
-    ch = guild.get_channel(cid)
-    return ch if isinstance(ch, discord.CategoryChannel) else None
+# ================= UTIL =================
+def get_category(guild, name):
+    return discord.utils.get(guild.categories, name=name)
 
-# ================= LOG =================
 async def log(msg):
     ch = client.get_channel(LOG_CHANNEL_ID)
     if ch:
         await ch.send(msg)
+
+# ================= VIP =================
+async def check_vip_warning(member, points):
+    if points == 40:
+        try:
+            await member.send("⚠️ อีก 10 แต้มจะได้ VIP 🎉")
+        except:
+            pass
+
+async def update_vip(member, points):
+
+    role = member.guild.get_role(VIP_ROLE_ID)
+    if not role:
+        return
+
+    if points >= 50:
+        if role not in member.roles:
+            await member.add_roles(role)
+    else:
+        if role in member.roles:
+            await member.remove_roles(role)
+
+    if points < 50:
+        await check_vip_warning(member, points)
 
 # ================= TICKET =================
 class TicketView(discord.ui.View):
@@ -52,14 +73,10 @@ class TicketView(discord.ui.View):
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         guild = interaction.guild
+        category = get_category(guild, TICKET_CATEGORY_NAME)
 
-        category = get_category(guild, TICKET_CATEGORY_ID)
-
-        if not category:
-            return await interaction.response.send_message(
-                "❌ Ticket category ไม่ถูกต้อง",
-                ephemeral=True
-            )
+        if category is None:
+            return await interaction.response.send_message("❌ ไม่มีหมวด Ticket", ephemeral=True)
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -74,25 +91,18 @@ class TicketView(discord.ui.View):
 
         tickets[channel.id] = interaction.user.id
 
-        await interaction.response.send_message(
-            f"🎫 เปิด Ticket แล้ว: {channel.mention}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"🎫 เปิด Ticket แล้ว {channel.mention}", ephemeral=True)
 
-        await channel.send("🛍️ ใช้ /ส่งของ ในห้องนี้")
-
-# ================= GET USER =================
+# ================= ORDER =================
 def get_ticket_user(channel_id):
     return tickets.get(channel_id)
 
-# ================= ORDER =================
 @tree.command(name="ส่งของ")
 async def send_order(interaction: discord.Interaction, สินค้า: str, จำนวน: str, ราคา: int):
 
     user_id = get_ticket_user(interaction.channel.id)
-
     if not user_id:
-        return await interaction.response.send_message("❌ ใช้ได้เฉพาะใน Ticket", ephemeral=True)
+        return await interaction.response.send_message("❌ ใช้ได้เฉพาะ Ticket", ephemeral=True)
 
     guild = interaction.guild
     member = guild.get_member(user_id)
@@ -110,12 +120,12 @@ async def send_order(interaction: discord.Interaction, สินค้า: str, 
         "user_id": user_id,
         "สินค้า": สินค้า,
         "จำนวน": จำนวน,
-        "ราคา": final_price
+        "ราคา": final_price,
+        "status": "รอดำเนินการ"
     }
     save("orders.json", orders)
 
-    # ================= ORDER CATEGORY =================
-    category = get_category(guild, ORDER_CATEGORY_ID)
+    category = get_category(guild, ORDER_CATEGORY_NAME)
 
     order_channel = None
     if category:
@@ -124,15 +134,11 @@ async def send_order(interaction: discord.Interaction, สินค้า: str, 
             category=category
         )
 
-    embed = discord.Embed(
-        title=f"🛍️ ORDER #{order_id}",
-        color=discord.Color.green()
-    )
-
+    embed = discord.Embed(title=f"🛍️ ORDER #{order_id}", color=discord.Color.green())
     embed.add_field(name="👤 ลูกค้า", value=user.mention, inline=False)
     embed.add_field(name="📦 สินค้า", value=สินค้า, inline=False)
     embed.add_field(name="🔢 จำนวน", value=จำนวน, inline=False)
-    embed.add_field(name="💰 ราคา", value=f"{final_price} บาท", inline=False)
+    embed.add_field(name="💰 ราคา", value=f"{final_price}", inline=False)
 
     await interaction.channel.send(embed=embed)
 
@@ -149,39 +155,119 @@ async def send_order(interaction: discord.Interaction, สินค้า: str, 
     save("points.json", points)
 
     await update_vip(member, points[uid])
-
     await log(f"🛍️ ORDER #{order_id} | VIP={is_vip} | {final_price}")
 
-# ================= VIP =================
-async def update_vip(member, points):
+# ================= POINT SYSTEM =================
+@tree.command(name="แต้ม")
+async def my_points(interaction: discord.Interaction):
 
-    role = member.guild.get_role(VIP_ROLE_ID)
-    if not role:
-        return
+    data = load("points.json")
+    await interaction.response.send_message(f"🎟️ แต้ม: {data.get(str(interaction.user.id), 0)}")
 
-    if points >= 50:
-        if role not in member.roles:
-            await member.add_roles(role)
-    else:
-        if role in member.roles:
-            await member.remove_roles(role)
+@tree.command(name="rank")
+async def rank(interaction: discord.Interaction):
+
+    data = load("points.json")
+    sorted_data = sorted(data.items(), key=lambda x: x[1], reverse=True)
+
+    uid = str(interaction.user.id)
+    rank = 0
+
+    for i, (u, _) in enumerate(sorted_data, start=1):
+        if u == uid:
+            rank = i
+            break
+
+    await interaction.response.send_message(f"🏆 Rank #{rank}")
+
+@tree.command(name="leaderboard")
+async def leaderboard(interaction: discord.Interaction):
+
+    data = load("points.json")
+    sorted_data = sorted(data.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    text = ""
+    for i, (uid, pts) in enumerate(sorted_data, start=1):
+        text += f"{i}. <@{uid}> - {pts}\n"
+
+    await interaction.response.send_message(embed=discord.Embed(
+        title="🏆 Leaderboard",
+        description=text,
+        color=discord.Color.gold()
+    ))
+
+# ================= ADMIN POINTS =================
+@tree.command(name="ตั้งแต้ม")
+async def set_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ ไม่มีสิทธิ์", ephemeral=True)
+
+    data = load("points.json")
+    data[str(user.id)] = amount
+    save("points.json", data)
+
+    await update_vip(user, amount)
+
+    await interaction.response.send_message("✅ ตั้งแต้มแล้ว")
+
+@tree.command(name="เพิ่มแต้ม")
+async def add_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ ไม่มีสิทธิ์", ephemeral=True)
+
+    data = load("points.json")
+    uid = str(user.id)
+
+    data[uid] = data.get(uid, 0) + amount
+    save("points.json", data)
+
+    await update_vip(user, data[uid])
+
+    await interaction.response.send_message("➕ เพิ่มแต้มแล้ว")
+
+@tree.command(name="ลดแต้ม")
+async def remove_points(interaction: discord.Interaction, user: discord.Member, amount: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ ไม่มีสิทธิ์", ephemeral=True)
+
+    data = load("points.json")
+    uid = str(user.id)
+
+    data[uid] = max(0, data.get(uid, 0) - amount)
+    save("points.json", data)
+
+    await update_vip(user, data[uid])
+
+    await interaction.response.send_message("➖ ลดแต้มแล้ว")
+
+@tree.command(name="resetแต้ม")
+async def reset_points(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ ไม่มีสิทธิ์", ephemeral=True)
+
+    save("points.json", {})
+
+    await interaction.response.send_message("🧹 รีเซ็ตแต้มแล้ว")
 
 # ================= SETUP =================
 @tree.command(name="setup_ticket")
 async def setup_ticket(interaction: discord.Interaction):
 
-    ch = client.get_channel(TICKET_CATEGORY_ID)
+    channel = client.get_channel(1494046169511235755)
 
-    await ch.send(
-        embed=discord.Embed(
-            title="🎫 Ticket System",
-            description="กดปุ่มเพื่อเปิด Ticket",
-            color=discord.Color.green()
-        ),
-        view=TicketView()
+    embed = discord.Embed(
+        title="🎫 Ticket System",
+        description="กดปุ่มเพื่อเปิด Ticket",
+        color=discord.Color.green()
     )
 
-    await interaction.response.send_message("✅ ตั้งบอร์ดแล้ว", ephemeral=True)
+    await channel.send(embed=embed, view=TicketView())
+
+    await interaction.response.send_message("✅ ตั้งระบบแล้ว", ephemeral=True)
 
 # ================= READY =================
 @client.event
