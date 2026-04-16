@@ -7,6 +7,9 @@ async def get_order_channel(guild, oid):
 
     category = discord.utils.get(guild.categories, id=config["order_category_id"])
 
+    if not category:
+        return None
+
     for ch in category.channels:
         if ch.name == f"order-{oid}":
             return ch
