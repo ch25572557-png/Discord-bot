@@ -3,8 +3,6 @@ import asyncio
 import json
 
 from shop import ShopView
-from order import load, update_status
-from order_channel import get_order_channel
 
 config = json.load(open("config.json"))
 active = {}
