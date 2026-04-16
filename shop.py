@@ -1,56 +1,93 @@
 import discord
-import json
-
-from stock import reduce_stock, get_price
-from points import add_points
-from discount import get_discount
+from stock import reduce_stock
 from order import create_order
 from order_channel import get_order_channel
 
-
-def load_config():
-    return json.load(open("config.json"))
+ORDER_DATA = {}  # เก็บ user ของแต่ละ order
 
 
-class ShopView(discord.ui.View):
+class OrderModal(discord.ui.Modal, title="🛒 สั่งของ"):
 
-    @discord.ui.button(label="🛒 Buy", style=discord.ButtonStyle.green)
-    async def buy(self, interaction, button):
+    item = discord.ui.TextInput(label="สิ่งที่ต้องการสั่ง")
+    qty = discord.ui.TextInput(label="จำนวน")
 
-        config = load_config()
+    async def on_submit(self, interaction: discord.Interaction):
 
-        item = "cash"
+        item = self.item.value
+        qty = int(self.qty.value)
 
-        price = get_price(item)
-        discount = get_discount(interaction.user.id)
-        final = price - (price * discount)
+        price = 100 * qty
 
-        if not reduce_stock(item, 1):
-            return await interaction.response.send_message("❌ หมด", ephemeral=True)
+        if not reduce_stock(item, qty):
+            return await interaction.response.send_message("❌ ของไม่พอ", ephemeral=True)
 
-        oid = create_order(interaction.user.id, item, 1, final)
+        oid = create_order(interaction.user.id, item, qty, price)
 
-        add_points(interaction.user.id, 1)
+        ORDER_DATA[oid] = interaction.user.id  # เก็บ user
 
-        # 📦 order channel
-        ch = await get_order_channel(interaction.guild, oid)
-        if ch:
-            await ch.send(f"📦 Order #{oid}\n💰 {final}")
+        channel = await get_order_channel(interaction.guild, oid)
 
-        # 🔔 admin log
-        admin = interaction.guild.get_channel(config["admin_log_channel_id"])
-        if admin:
-            await admin.send(f"📦 ORDER #{oid} | {interaction.user} | {final}")
+        await channel.send(
+            f"📦 Order #{oid}\n"
+            f"👤 {interaction.user.mention}\n"
+            f"🛒 {item}\n"
+            f"🔢 {qty}\n"
+            f"💰 {price}",
+            view=OrderStatusView(oid)
+        )
 
-        # 📊 debug log
-        check = interaction.guild.get_channel(config["check_log_channel_id"])
-        if check:
-            await check.send(f"[DEBUG] {interaction.user.id} {item} {final}")
+        await interaction.response.send_message(
+            f"✅ สั่งของสำเร็จ #{oid}",
+            ephemeral=True
+        )
 
-        # 📩 DM
-        try:
-            await interaction.user.send(f"✅ Order #{oid}\n💰 {final}")
-        except:
-            pass
 
-        await interaction.response.send_message(f"✅ #{oid}", ephemeral=True)
+class OrderStatusView(discord.ui.View):
+
+    def __init__(self, oid):
+        super().__init__()
+        self.oid = oid
+
+    async def send_dm(self, interaction, status):
+
+        user_id = ORDER_DATA.get(self.oid)
+
+        if user_id:
+            user = await interaction.client.fetch_user(user_id)
+
+            try:
+                await user.send(
+                    f"📦 Order #{self.oid}\n"
+                    f"🔔 สถานะอัปเดต: {status}"
+                )
+            except:
+                pass
+
+    @discord.ui.button(label="📥 รับออเดอร์", style=discord.ButtonStyle.green)
+    async def accept(self, interaction, button):
+        await self.update(interaction, "📥 รับออเดอร์แล้ว")
+
+    @discord.ui.button(label="⛏ กำลังฟาร์ม", style=discord.ButtonStyle.blurple)
+    async def farm(self, interaction, button):
+        await self.update(interaction, "⛏ กำลังฟาร์ม")
+
+    @discord.ui.button(label="📦 รอส่ง", style=discord.ButtonStyle.gray)
+    async def wait(self, interaction, button):
+        await self.update(interaction, "📦 รอส่ง")
+
+    @discord.ui.button(label="✅ ส่งแล้ว", style=discord.ButtonStyle.green)
+    async def done(self, interaction, button):
+        await self.update(interaction, "✅ ส่งแล้ว")
+
+    async def update(self, interaction, status):
+
+        await self.send_dm(interaction, status)
+
+        await interaction.channel.send(
+            f"🔔 Order #{self.oid} → **{status}**"
+        )
+
+        await interaction.response.send_message(
+            "อัปเดตแล้ว + DM แล้ว",
+            ephemeral=True
+        )
