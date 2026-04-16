@@ -1,39 +1,41 @@
 import discord
+
 from stock import reduce_stock, get_price
-from order import create_order
-from points import add_points
-from discount import apply
+from order import create_order, update_status
+from points import add_points, get_points
+from discount import get_discount
+from order_channel import get_order_channel
 
 class ShopView(discord.ui.View):
 
-    def __init__(self):
-        super().__init__()
-        self.last_order = None
+    @discord.ui.button(label="🛒 Buy", style=discord.ButtonStyle.green)
+    async def buy(self, interaction, button):
 
-    @discord.ui.button(label="Cash", style=discord.ButtonStyle.green)
-    async def cash(self, i, b):
-        await self.buy(i,"Cash")
-
-    @discord.ui.button(label="Gun", style=discord.ButtonStyle.red)
-    async def gun(self, i, b):
-        await self.buy(i,"Gun")
-
-    async def buy(self, i, item):
-
-        if not reduce_stock(item,1):
-            return await i.response.send_message("❌ ของหมด", ephemeral=True)
+        item = "Cash"
 
         price = get_price(item)
 
-        oid = create_order(i.user.id,item,1,price)
+        discount = get_discount(interaction.user.id)
 
-        self.last_order = oid
+        final_price = price - (price * discount)
 
-        add_points(i.user.id,1)
+        if not reduce_stock(item,1):
+            return await interaction.response.send_message("❌ ของหมด", ephemeral=True)
 
-        final, d = apply(i.user.id,price)
+        oid = create_order(interaction.user.id,item,1,final_price)
 
-        await i.response.send_message(
-            f"📦 Order #{oid}\n💰 {final}",
+        add_points(interaction.user.id,1)
+
+        update_status(oid,"processing")
+
+        ch = await get_order_channel(interaction.guild, oid)
+
+        await ch.send(
+            f"🆕 Order #{oid}\n"
+            f"💰 {final_price}"
+        )
+
+        await interaction.response.send_message(
+            f"Order #{oid} created",
             ephemeral=True
         )
