@@ -15,7 +15,6 @@ def save(data):
 def create_order(uid, item, qty, total):
 
     db = load()
-
     db["counter"] += 1
     oid = str(db["counter"])
 
